@@ -1,14 +1,12 @@
 [package]
 name = "offregisters-lib"
-version = "0.0.2"
-authors = ["Samuel Marks <samuelmarks@gmail.com>"]
+version = "0.0.3"
+authors = ["Samuel Marks @SamuelMarks"]
 edition = "2018"
 
 [dependencies]
-mio_httpc = { version = "0.8", features = ["native"] }
 mio = "0.6.16"
+mio_httpc = { version = "0.8.6", features = ["native"] }
 failure = "0.1.5"
-serde_derive = "1.0.84"
-arrayvec = "0.4.10"
 url = "1.7.2"
 lazy_static = "1.2.0"
