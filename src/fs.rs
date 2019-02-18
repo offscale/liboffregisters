@@ -37,14 +37,14 @@ pub fn basename(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env::temp_dir;
     use std::fs::remove_file;
     use std::panic;
     use std::path::{Path, PathBuf};
+    use std::env::temp_dir;
 
     #[inline(always)]
     fn get_fname() -> PathBuf {
-        Path::new(&temp_dir()).join("test_write_file")
+        Path::new(&*temp_dir()).join("test_write_file")
     }
 
     fn run_test<T>(test: T) -> ()

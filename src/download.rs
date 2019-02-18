@@ -159,6 +159,7 @@ pub fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::env::get_tmpdir;
 
     #[inline(always)]
     fn urls2urls() -> Vec<Url> {
@@ -219,10 +220,8 @@ mod tests {
 
     #[test]
     fn download_to_dir() {
-        let _td = std::env::temp_dir();
-        let _td_cow = _td.to_string_lossy();
-        let tmp_dir = _td_cow.as_ref();
         let urls = urls2urls();
+        let tmp_dir = &*get_tmpdir();
         match download(Some(tmp_dir), urls) {
             Ok(url2response) => {
                 for &expected_url_response in URLRESPONSES {
