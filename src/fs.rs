@@ -5,8 +5,8 @@ use std::path::Path;
 use failure::Error;
 
 pub fn write_file<T>(path: &Path, content: T) -> Result<(), Error>
-where
-    T: Into<String>,
+    where
+        T: Into<String>,
 {
     let display = path.display();
     let mut file = match File::create(&path) {
@@ -47,15 +47,14 @@ mod tests {
         Path::new(&temp_dir()).join("test_write_file")
     }
 
-    /*
     fn run_test<T>(test: T) -> ()
-    where
-        T: FnOnce() -> () + panic::UnwindSafe,
+        where
+            T: FnOnce() -> () + panic::UnwindSafe,
     {
         let cleanup = || {
             let fname = get_fname();
             if fname.exists() {
-                remove_file(fname);
+                remove_file(fname).unwrap();
             }
         };
 
@@ -67,32 +66,25 @@ mod tests {
 
         assert!(result.is_ok())
     }
-    */
 
+    #[test]
     fn test_basename() {
-        assert_eq!(basename("foo/bar/can.txt"), "canb")
+        assert_eq!(basename("foo/bar/can.txt"), "can.txt")
     }
 
     #[test]
     fn test_write_file() {
-        let cleanup = || {
+        run_test(|| {
             let fname = get_fname();
-            if fname.exists() {
-                remove_file(fname);
-            }
-        };
 
-        cleanup();
-        let fname = get_fname();
+            let content: &'static str = "Foo";
 
-        let content: &'static str = "Foo";
-
-        write_file(fname.as_path(), content);
-        assert_eq!(fname.exists(), true);
-        let actual_content =
-            std::fs::read_to_string(fname).expect("Something went wrong reading the file");
-        assert_eq!(actual_content, content);
-        assert_ne!(actual_content, "Not what I expected");
-        cleanup();
+            write_file(fname.as_path(), content).unwrap();
+            assert_eq!(fname.exists(), true);
+            let actual_content =
+                std::fs::read_to_string(fname).expect("Something went wrong reading the file");
+            assert_eq!(actual_content, content);
+            assert_ne!(actual_content, "Not what I expected");
+        })
     }
 }

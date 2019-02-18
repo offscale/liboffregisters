@@ -11,6 +11,12 @@ use crate::fs::basename;
 use crate::fs::write_file;
 use failure::Error;
 
+#[derive(Debug, Fail)]
+#[fail(display = "request timed out")]
+pub struct RequestTimeoutError; /* {
+    url: Url,
+}*/
+
 #[derive(Clone)]
 pub struct StatusHeadersText<'a> {
     status: u16,
@@ -35,7 +41,7 @@ fn do_call<'a>(
         poll.poll(&mut events, Some(to))?;
         for cref in htp.timeout().into_iter() {
             if call.is_ref(cref) {
-                return Err(format_err!("Request timed out"));
+                return Err(RequestTimeoutError.into());
             }
         }
 
@@ -162,6 +168,17 @@ mod tests {
             .collect()
     }
 
+    #[inline(always)]
+    fn error_handler(error: Error) {
+        if error.downcast_ref::<RequestTimeoutError>().is_none() {
+            let fail = error.as_fail();
+            eprintln!(
+                "fail.cause(): {:#?}, fail.backtrace(): {:#?}, fail: {:#?}, name: {:#?}",
+                fail.cause(), fail.backtrace(), fail, fail.name());
+            panic!(error)
+        }
+    }
+
     const URLRESPONSES: &'static [&'static UrlResponse] = &[
         &UrlResponse {
             url: "http://detectportal.firefox.com/success.txt",
@@ -221,7 +238,7 @@ mod tests {
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
             }
-            Err(e) => panic!(e),
+            Err(e) => error_handler(e)
         }
     }
 
@@ -237,7 +254,7 @@ mod tests {
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
             }
-            Err(e) => panic!(e),
+            Err(e) => error_handler(e)
         }
     }
 }
