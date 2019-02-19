@@ -4,7 +4,7 @@ use std::path::Path;
 
 use failure::Error;
 
-pub fn write_file<T>(path: &Path, content: T) -> Result<(), Error>
+pub fn write_string_to_file<T>(path: &Path, content: T) -> Result<(), Error>
 where
     T: Into<String>,
 {
@@ -79,7 +79,7 @@ mod tests {
 
             let content: &'static str = "Foo";
 
-            write_file(fname.as_path(), content).unwrap();
+            write_string_to_file(fname.as_path(), content).unwrap();
             assert_eq!(fname.exists(), true);
             let actual_content =
                 std::fs::read_to_string(fname).expect("Something went wrong reading the file");

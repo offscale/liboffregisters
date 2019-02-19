@@ -8,7 +8,11 @@ where
     }
 }
 
-pub fn get_tmpdir() -> String {
+pub fn temp_dir_osstring() -> std::ffi::OsString {
+    return std::env::temp_dir().into_os_string().to_owned();
+}
+
+pub fn temp_dir_string() -> String {
     let _td = std::env::temp_dir();
     let _td_cow = _td.to_string_lossy();
     return _td_cow.as_ref().to_owned();

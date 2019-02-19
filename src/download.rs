@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 
 use mio_httpc::{CallBuilder, Headers, Httpc, HttpcCfg, SimpleCall};
@@ -7,10 +8,9 @@ use mio::{Events, Poll};
 
 use url::Url;
 
-use crate::fs::basename;
-use crate::fs::write_file;
 use failure::Error;
-use std::fmt;
+
+use crate::fs::basename;
 
 #[derive(Debug, Fail)]
 #[fail(display = "request timed out")]
@@ -19,28 +19,39 @@ pub struct RequestTimeoutError; /* {
                                 }*/
 
 #[derive(Clone)]
-pub struct StatusHeadersText<'a> {
+pub struct DownloadResponse<'a> {
     pub status: u16,
     pub headers: Headers<'a>,
-    pub text: String,
+    pub raw: Option<Vec<u8>>,
+    pub downloaded_to: Option<std::ffi::OsString>,
 }
 
-impl<'a> fmt::Display for StatusHeadersText<'a> {
+impl<'a> DownloadResponse<'a> {
+    fn response_text(&self) -> Result<String, Error> {
+        if self.raw.is_some() {
+            Ok(String::from_utf8(self.raw.clone().unwrap())?)
+        } else {
+            Err(format_err!("empty response"))
+        }
+    }
+}
+
+impl<'a> fmt::Display for DownloadResponse<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "StatusHeadersText {{ status: {}, headers: {}, text: {} }}",
-            self.status, self.headers, self.text
+            "DownloadResponse {{ status: {}, headers: {}, raw: {:?}, downloaded_to: {:?} }}",
+            self.status, self.headers, self.raw, self.downloaded_to
         )
     }
 }
 
-impl<'a> fmt::Debug for StatusHeadersText<'a> {
+impl<'a> fmt::Debug for DownloadResponse<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "StatusHeadersText {{ status: {:#?}, headers: {}, text: {:#?} }}",
-            self.status, self.headers, self.text
+            "DownloadResponse {{ status: {:#?}, headers: {}, raw: {:#?}, downloaded_to: {:#?} }}",
+            self.status, self.headers, self.raw, self.downloaded_to
         )
     }
 }
@@ -49,12 +60,12 @@ fn do_call<'a>(
     htp: &mut Httpc,
     poll: &Poll,
     mut call: SimpleCall,
-) -> Result<StatusHeadersText<'a>, Error> {
-    let mut opt_resp: Option<String>;
+) -> Result<DownloadResponse<'a>, Error> {
     let to = ::std::time::Duration::from_millis(100);
     let mut events = Events::with_capacity(8);
 
     let last_status: u16;
+    let raw: Option<Vec<u8>>;
     /* TODO:
     let last_headers: &'a Headers ;
     */
@@ -74,35 +85,26 @@ fn do_call<'a>(
                     Some(rb) => Ok(rb),
                     None => Err(format_err!("No response")),
                 }?;
-                match String::from_utf8(body.clone()) {
-                    Ok(s) => {
-                        opt_resp = Some(s);
-                        last_status = response.status;
-                    }
-                    Err(_) => {
-                        return Err(format_err!("Non utf8 body sized: {}", body.len()));
-                    }
-                }
+                raw = Some(body);
+                last_status = response.status;
                 break 'outer;
             }
         }
     }
 
-    match opt_resp {
-        Some(text) => Ok(StatusHeadersText {
-            status: last_status,         // last_response.status.clone(),
-            headers: Headers::default(), // last_response.headers().clone(),
-            text,
-        }),
-        None => Err(format_err!("Empty response")),
-    }
+    Ok(DownloadResponse {
+        status: last_status,         // last_response.status.clone(),
+        headers: Headers::default(), // last_response.headers().clone(),
+        raw,
+        downloaded_to: None,
+    })
 }
 
-pub fn download(
-    dir: Option<&str>,
+pub fn download<'a>(
+    dir: Option<&std::ffi::OsString>,
     urls: Vec<Url>,
-) -> Result<HashMap<Url, StatusHeadersText>, Error> {
-    let mut url2response: HashMap<Url, StatusHeadersText> = HashMap::new();
+) -> Result<HashMap<Url, DownloadResponse<'a>>, Error> {
+    let mut url2response: HashMap<Url, DownloadResponse> = HashMap::new();
 
     let poll = Poll::new()?;
 
@@ -144,31 +146,36 @@ pub fn download(
 
         if error.is_some() {
             return Err(error.unwrap());
-        }
-
-        if download_path.is_none() && dir.is_some() {
+        } else if download_path.is_none() && dir.is_some() {
             return Err(format_err!("No filename detectable from URL"));
         }
 
         let (k, v) = (match do_call(&mut htp, &poll, call) {
-            Ok(status_headers_text) => {
-                match if dir.is_some() && download_path.is_some() {
+            Ok(download_response) => {
+                match if download_response.raw.is_none() {
+                    return Err(format_err!("Empty response from URL"));
+                } else if dir.is_some() && download_path.is_some() {
                     let dp = download_path.unwrap();
-                    write_file(Path::new(&dp), status_headers_text.text)?;
-                    Ok(StatusHeadersText {
-                        headers: status_headers_text.headers,
-                        status: status_headers_text.status,
-                        text: dp,
+
+                    // let path = Path::new(&dp);
+
+                    let victor = download_response.raw.unwrap();
+                    std::fs::write(&dp, &victor)?;
+                    Ok(DownloadResponse {
+                        headers: download_response.headers,
+                        status: download_response.status,
+                        raw: Some(victor),
+                        downloaded_to: Some(dp.into()),
                     })
                 } else {
-                    Ok(status_headers_text)
+                    Ok(download_response)
                 } {
                     Ok(v) => Ok((urls[i].clone(), v)),
                     Err(e) => Err(e),
                 }
             }
             Err(e) => return Err(e),
-        } as Result<(Url, StatusHeadersText), Error>)?;
+        } as Result<(Url, DownloadResponse), Error>)?;
 
         url2response.insert(k, v);
         // println!("Open connections = {}", htp.open_connections());
@@ -180,7 +187,7 @@ pub fn download(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env::get_tmpdir;
+    use crate::env::temp_dir_osstring;
 
     #[inline(always)]
     fn urls2urls() -> Vec<Url> {
@@ -246,18 +253,18 @@ mod tests {
     #[test]
     fn download_to_dir() {
         let urls = urls2urls();
-        let tmp_dir = &*get_tmpdir();
-        match download(Some(tmp_dir), urls) {
+        let tmp_dir = temp_dir_osstring();
+        match download(Some(&tmp_dir), urls) {
             Ok(url2response) => {
                 for &expected_url_response in URLRESPONSES {
                     let url: &Url = &Url::parse(expected_url_response.url).unwrap();
                     assert_eq!(url2response.contains_key(url), true);
                     let actual_response = url2response.get(url).unwrap();
                     assert_eq!(
-                        Some(actual_response.text.as_str()),
-                        Path::new(tmp_dir)
+                        actual_response.downloaded_to.clone().unwrap(),
+                        Path::new(&tmp_dir)
                             .join(expected_url_response.fname)
-                            .to_str()
+                            .into_os_string()
                     );
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
@@ -274,7 +281,10 @@ mod tests {
                     let url: &Url = &Url::parse(expected_url_response.url).unwrap();
                     assert_eq!(url2response.contains_key(url), true);
                     let actual_response = url2response.get(url).unwrap();
-                    assert_eq!(actual_response.text.as_str(), expected_url_response.content);
+                    assert_eq!(
+                        actual_response.response_text().unwrap(),
+                        expected_url_response.content
+                    );
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
             }
