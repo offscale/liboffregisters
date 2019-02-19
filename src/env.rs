@@ -1,6 +1,6 @@
 pub fn env_or<T>(key: &str, default_env: T) -> std::ffi::OsString
-    where
-        T: Into<std::ffi::OsString>,
+where
+    T: Into<std::ffi::OsString>,
 {
     match std::env::var_os(key) {
         Some(val) => val,
@@ -18,9 +18,9 @@ pub fn get_tmpdir() -> String {
 mod tests {
     use super::env_or;
     use std::env;
-    use std::sync::Mutex;
-    use std::sync::Arc;
     use std::panic;
+    use std::sync::Arc;
+    use std::sync::Mutex;
 
     const KEY: &'static str = "FOO";
     const VALUE: &'static str = "BAR";
@@ -29,13 +29,11 @@ mod tests {
     }
 
     fn run_test<T>(test: T) -> ()
-        where
-            T: FnOnce() -> () + panic::UnwindSafe {
-
+    where
+        T: FnOnce() -> () + panic::UnwindSafe,
+    {
         let m = MUTEX.lock().unwrap();
-        let result = panic::catch_unwind(|| {
-            test()
-        });
+        let result = panic::catch_unwind(|| test());
         drop(m);
 
         assert!(result.is_ok())

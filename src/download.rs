@@ -10,18 +10,39 @@ use url::Url;
 use crate::fs::basename;
 use crate::fs::write_file;
 use failure::Error;
+use std::fmt;
 
 #[derive(Debug, Fail)]
 #[fail(display = "request timed out")]
 pub struct RequestTimeoutError; /* {
-    url: Url,
-}*/
+                                    url: Url,
+                                }*/
 
 #[derive(Clone)]
 pub struct StatusHeadersText<'a> {
-    status: u16,
-    headers: Headers<'a>,
-    text: String,
+    pub status: u16,
+    pub headers: Headers<'a>,
+    pub text: String,
+}
+
+impl<'a> fmt::Display for StatusHeadersText<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "StatusHeadersText {{ status: {}, headers: {}, text: {} }}",
+            self.status, self.headers, self.text
+        )
+    }
+}
+
+impl<'a> fmt::Debug for StatusHeadersText<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "StatusHeadersText {{ status: {:#?}, headers: {}, text: {:#?} }}",
+            self.status, self.headers, self.text
+        )
+    }
 }
 
 fn do_call<'a>(
@@ -175,7 +196,11 @@ mod tests {
             let fail = error.as_fail();
             eprintln!(
                 "fail.cause(): {:#?}, fail.backtrace(): {:#?}, fail: {:#?}, name: {:#?}",
-                fail.cause(), fail.backtrace(), fail, fail.name());
+                fail.cause(),
+                fail.backtrace(),
+                fail,
+                fail.name()
+            );
             panic!(error)
         }
     }
@@ -237,7 +262,7 @@ mod tests {
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
             }
-            Err(e) => error_handler(e)
+            Err(e) => error_handler(e),
         }
     }
 
@@ -253,7 +278,7 @@ mod tests {
                     assert_eq!(actual_response.status, expected_url_response.status)
                 }
             }
-            Err(e) => error_handler(e)
+            Err(e) => error_handler(e),
         }
     }
 }

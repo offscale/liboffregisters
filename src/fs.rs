@@ -5,8 +5,8 @@ use std::path::Path;
 use failure::Error;
 
 pub fn write_file<T>(path: &Path, content: T) -> Result<(), Error>
-    where
-        T: Into<String>,
+where
+    T: Into<String>,
 {
     let display = path.display();
     let mut file = match File::create(&path) {
@@ -37,10 +37,10 @@ pub fn basename(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env::temp_dir;
     use std::fs::remove_file;
     use std::panic;
     use std::path::{Path, PathBuf};
-    use std::env::temp_dir;
 
     #[inline(always)]
     fn get_fname() -> PathBuf {
@@ -48,8 +48,8 @@ mod tests {
     }
 
     fn run_test<T>(test: T) -> ()
-        where
-            T: FnOnce() -> () + panic::UnwindSafe,
+    where
+        T: FnOnce() -> () + panic::UnwindSafe,
     {
         let cleanup = || {
             let fname = get_fname();
