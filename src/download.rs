@@ -11,6 +11,7 @@ use url::Url;
 use failure::Error;
 
 use crate::fs::basename;
+use std::path::PathBuf;
 
 #[derive(Debug, Fail)]
 #[fail(display = "request timed out")]
@@ -103,6 +104,7 @@ fn do_call<'a>(
 pub fn download<'a>(
     dir: Option<&std::ffi::OsString>,
     urls: Vec<Url>,
+    upsert: bool,
 ) -> Result<HashMap<Url, DownloadResponse<'a>>, Error> {
     let mut url2response: HashMap<Url, DownloadResponse> = HashMap::new();
 
@@ -122,6 +124,7 @@ pub fn download<'a>(
             .url(&url_s)
             .unwrap()
             .timeout_ms(10000)
+            .max_response(1024 * 1024 * 20) // 20MB
             // .insecure_do_not_verify_domain()
             .simple_call(&mut htp, &poll)?; // .expect("Call start failed");
 
@@ -144,37 +147,80 @@ pub fn download<'a>(
             None
         };
 
+        let to_file = dir.is_some() && download_path.is_some();
+
         if error.is_some() {
             return Err(error.unwrap());
-        } else if download_path.is_none() && dir.is_some() {
+        } else if dir.is_some() && download_path.is_none() {
             return Err(format_err!("No filename detectable from URL"));
         }
 
-        let (k, v) = (match do_call(&mut htp, &poll, call) {
-            Ok(download_response) => {
-                match if download_response.raw.is_none() {
-                    return Err(format_err!("Empty response from URL"));
-                } else if dir.is_some() && download_path.is_some() {
-                    let dp = download_path.unwrap();
+        let (k, v) = ({
+            let download_path_p_opt: Option<PathBuf> = if to_file {
+                Some(PathBuf::from(&download_path.unwrap()))
+            } else {
+                None
+            };
 
-                    // let path = Path::new(&dp);
-
-                    let victor = download_response.raw.unwrap();
-                    std::fs::write(&dp, &victor)?;
-                    Ok(DownloadResponse {
-                        headers: download_response.headers,
-                        status: download_response.status,
-                        raw: Some(victor),
-                        downloaded_to: Some(dp.into()),
-                    })
-                } else {
-                    Ok(download_response)
-                } {
-                    Ok(v) => Ok((urls[i].clone(), v)),
-                    Err(e) => Err(e),
-                }
+            enum Next<'g> {
+                Ok((Url, DownloadResponse<'g>)),
+                // Err(Error),
+                ServerRequest(Option<PathBuf>),
             }
-            Err(e) => return Err(e),
+
+            match match download_path_p_opt {
+                Some(download_path_p) => {
+                    if download_path_p.exists() && !upsert {
+                        match std::fs::read(&download_path_p) {
+                            Ok(raw) => Next::Ok((
+                                urls[i].clone(),
+                                DownloadResponse {
+                                    headers: Headers::default(),
+                                    status: 200,
+                                    raw: Some(raw),
+                                    downloaded_to: Some(download_path_p.into()),
+                                },
+                            )),
+                            Err(e) => {
+                                eprintln!(
+                                    "Received error while reading, downloading again. Error was: {}",
+                                    e);
+                                Next::ServerRequest(Some(download_path_p))
+                            }
+                        }
+                    } else {
+                        Next::ServerRequest(Some(download_path_p))
+                    }
+                }
+                None => Next::ServerRequest(None),
+            } {
+                Next::Ok((url, res)) => Ok((url, res)),
+                // Next::Err(e) => Err(e),
+                Next::ServerRequest(dp_p_opt) => match do_call(&mut htp, &poll, call) {
+                    Ok(download_response) => {
+                        match if download_response.raw.is_none() {
+                            Err(format_err!("Empty response from URL"))
+                        } else if to_file {
+                            let dp_p = dp_p_opt.unwrap();
+
+                            let victor = download_response.raw.unwrap();
+                            std::fs::write(&dp_p, &victor)?;
+                            Ok(DownloadResponse {
+                                headers: download_response.headers,
+                                status: download_response.status,
+                                raw: Some(victor),
+                                downloaded_to: Some(dp_p.into()),
+                            })
+                        } else {
+                            Ok(download_response)
+                        } {
+                            Ok(v) => Ok((urls[i].clone(), v)),
+                            Err(e) => Err(e),
+                        }
+                    }
+                    Err(e) => Err(e),
+                },
+            }
         } as Result<(Url, DownloadResponse), Error>)?;
 
         url2response.insert(k, v);
@@ -186,8 +232,13 @@ pub fn download<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::fs::metadata;
+    use std::sync::Mutex;
+
     use super::*;
     use crate::env::temp_dir_osstring;
+    use std::env::temp_dir;
+    use std::time::SystemTime;
 
     #[inline(always)]
     fn urls2urls() -> Vec<Url> {
@@ -248,34 +299,137 @@ mod tests {
 
     lazy_static! {
         static ref URLS: Vec<Url> = urls2urls();
+        static ref URL2CREATED: Mutex<HashMap<Url, std::time::SystemTime>> =
+            Mutex::new(HashMap::new());
+        static ref TMP_DIR: PathBuf = temp_dir().join(env!("CARGO_PKG_NAME"));
+    }
+
+    fn handle_tmpdir<T>(dir: &std::ffi::OsString, _clean_it_up: bool, test: T) -> ()
+    where
+        T: FnOnce() -> () + std::panic::UnwindSafe,
+    {
+        let dir_as_path_buf = &PathBuf::from(&dir);
+        let cleanup = |create: bool| {
+            if dir_as_path_buf.exists() {
+                let content_size: usize = match std::fs::read_dir(dir_as_path_buf) {
+                    Ok(contents) => Ok(contents.collect::<Vec<_>>().len()),
+                    Err(e) => Err(format_err!(
+                        "Failed to read directory \"{}\": {}",
+                        dir_as_path_buf.to_str().unwrap(),
+                        e
+                    )),
+                }
+                .unwrap();
+                if content_size > 0
+                /*&& clean_it_up*/
+                {
+                    std::fs::remove_dir_all(dir_as_path_buf).unwrap();
+                }
+            } /*else if create {
+                  std::fs::create_dir_all(&dir).unwrap();
+              }*/
+            if create
+            /* && !dir_as_path_buf.exists() */
+            {
+                std::fs::create_dir_all(&dir).unwrap();
+            }
+        };
+
+        cleanup(true);
+
+        let result = std::panic::catch_unwind(|| test());
+
+        cleanup(false);
+
+        assert!(result.is_ok())
     }
 
     #[test]
     fn download_to_dir() {
         let urls = urls2urls();
         let tmp_dir = temp_dir_osstring();
-        match download(Some(&tmp_dir), urls) {
-            Ok(url2response) => {
-                for &expected_url_response in URLRESPONSES {
-                    let url: &Url = &Url::parse(expected_url_response.url).unwrap();
-                    assert_eq!(url2response.contains_key(url), true);
-                    let actual_response = url2response.get(url).unwrap();
-                    assert_eq!(
-                        actual_response.downloaded_to.clone().unwrap(),
-                        Path::new(&tmp_dir)
-                            .join(expected_url_response.fname)
-                            .into_os_string()
-                    );
-                    assert_eq!(actual_response.status, expected_url_response.status)
+        handle_tmpdir(&tmp_dir, true, || {
+            match download(Some(&tmp_dir), urls, false) {
+                Ok(url2response) => {
+                    for &expected_url_response in URLRESPONSES {
+                        let url: &Url = &Url::parse(expected_url_response.url).unwrap();
+                        assert_eq!(url2response.contains_key(url), true);
+                        let actual_response = url2response.get(url).unwrap();
+                        assert_eq!(
+                            actual_response.downloaded_to.clone().unwrap(),
+                            Path::new(&tmp_dir)
+                                .join(expected_url_response.fname)
+                                .into_os_string()
+                        );
+                        assert_eq!(actual_response.status, expected_url_response.status)
+                    }
                 }
+                Err(e) => error_handler(e),
             }
-            Err(e) => error_handler(e),
+        })
+    }
+
+    // #[test]
+    fn download_cache() {
+        if !TMP_DIR.exists() {
+            std::fs::create_dir_all(TMP_DIR.as_path()).unwrap();
         }
+
+        let tmp_dir_os_string = TMP_DIR.as_os_str().to_os_string();
+
+        println!("tmp_dir_os_string: {:?}", tmp_dir_os_string);
+
+        let g = |_clean_it_up: bool| {
+            let urls = urls2urls();
+            match download(Some(&tmp_dir_os_string), urls, false) {
+                Ok(url2response) => {
+                    for &expected_url_response in URLRESPONSES {
+                        let url: Url = Url::parse(expected_url_response.url).unwrap();
+                        assert_eq!(url2response.contains_key(&url), true);
+                        let actual_response = url2response.get(&url).unwrap();
+
+                        let path = Path::new(&tmp_dir_os_string).join(expected_url_response.fname);
+
+                        assert_eq!(path.exists(), true);
+
+                        let path_os_string = path.into_os_string();
+
+                        assert_eq!(
+                            actual_response.downloaded_to.clone().unwrap(),
+                            path_os_string
+                        );
+                        if expected_url_response.status != 200 {
+                            continue;
+                        }
+                        assert_eq!(actual_response.status, expected_url_response.status);
+
+                        let path_metadata = metadata(path_os_string).unwrap();
+
+                        match URL2CREATED.lock().unwrap().get(&url) as Option<&SystemTime> {
+                            Some(created) => {
+                                assert_eq!(created, &path_metadata.created().unwrap());
+                            }
+                            None => {
+                                URL2CREATED
+                                    .lock()
+                                    .unwrap()
+                                    .insert(url, path_metadata.created().unwrap());
+                            }
+                        }
+                    }
+                }
+                Err(e) => error_handler(e),
+            }
+        };
+        g(false); // Download, filling cache
+                  // g(true); // Try download, find in cache, use that
+
+        std::fs::remove_dir_all(TMP_DIR.as_path()).unwrap();
     }
 
     #[test]
     fn download_to_mem() {
-        match download(None, URLS.to_vec()) {
+        match download(None, URLS.to_vec(), false) {
             Ok(url2response) => {
                 for &expected_url_response in URLRESPONSES {
                     let url: &Url = &Url::parse(expected_url_response.url).unwrap();
