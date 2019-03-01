@@ -1,6 +1,6 @@
 [package]
 name = "offregisters-lib"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Samuel Marks @SamuelMarks"]
 edition = "2018"
 
@@ -9,4 +9,5 @@ mio = "0.6.16"
 mio_httpc = { version = "0.8.6", features = ["native"] }
 failure = "0.1.5"
 url = "1.7.2"
-lazy_static = "1.2.0"
+lazy_static = "1.3.0"
+tempfile = "3.0.7"
