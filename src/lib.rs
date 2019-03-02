@@ -12,6 +12,7 @@ pub trait OffRegisters {
     fn uninstall() -> Result<(), failure::Error>;
 }
 
+pub mod archive;
 pub mod download;
 pub mod env;
 pub mod fs;

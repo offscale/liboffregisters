@@ -10,7 +10,6 @@ use url::Url;
 
 use failure::Error;
 
-use crate::fs::basename;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -148,7 +147,7 @@ where
         let mut error: Option<Error> = None;
         let download_path: Option<String> = if dir_is_some {
             let p = base
-                .join(Path::new(&basename(&url_s)))
+                .join(Path::new(&url_s).file_name().unwrap())
                 .to_string_lossy()
                 .into_owned();
             if p.is_empty() {
