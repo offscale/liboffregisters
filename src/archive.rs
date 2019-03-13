@@ -109,9 +109,9 @@ mod tests {
     #[test]
     fn test_untar_all_in_dir() {
         let _tmp_dir: TempDir = tempfile::Builder::new()
-        .prefix(env!("CARGO_PKG_NAME"))
-        .tempdir()
-        .unwrap();
+            .prefix(env!("CARGO_PKG_NAME"))
+            .tempdir()
+            .unwrap();
 
         let tmp_dir = _tmp_dir.into_path().join("test_untar_all_in_dir");
         mkdirp(&tmp_dir).unwrap();
@@ -124,5 +124,6 @@ mod tests {
         untar_all_in_dir(&tmp_dir, Some(&untar_directory)).unwrap();
 
         assert_eq!(untar_directory.join(file!()).exists(), true);
+        std::fs::remove_dir_all(tmp_dir).unwrap(); // TempDir should've cleaned this one :\
     }
 }
