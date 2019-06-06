@@ -1,7 +1,7 @@
-offregisters-lib
+liboffregisters
 ================
 
-offregisters-lib is a utility crate, expected to be used by most/all of the `offregisters-` prefixed crates.
+liboffregisters is a utility crate, expected to be used by most/all of the `offregisters-` prefixed crates.
 
 ## RFCs
 Of interest are our RFCs:
@@ -24,7 +24,7 @@ $ cargo install --force cargo-make
 # Install rustfmt (Rust formatter)
 $ rustup component add rustfmt
 # Clone this repo
-$ git clone https://github.com/offscale/offregisters-lib && cd offregisters-lib
+$ git clone https://github.com/offscale/liboffregisters && cd liboffregisters
 # Run tests
 $ cargo test
 # Format, build and test
